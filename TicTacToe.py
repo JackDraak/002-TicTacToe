@@ -1,6 +1,9 @@
+import copy
 import json
+import math
 import os
 import random
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -19,6 +22,81 @@ INVALID_MOVE_PENALTY = -5
 MEMORY_SIZE = 2000
 
 
+class Node:
+    def __init__(self, game, parent=None, action=None):
+        self.game = game
+        self.parent = parent
+        self.action = action
+        self.children = []
+        self.wins = 0
+        self.visits = 0
+
+    def expand(self):
+        if not self.children:
+            for action in self.game.get_actions():
+                new_game = copy.deepcopy(self.game)
+                player = new_game.current_player
+                new_game.play(action // 3, action % 3, player)
+                new_node = Node(new_game, parent=self, action=action)
+                self.children.append(new_node)
+
+
+class MCTS:
+    def __init__(self, exploration_param=1, time_limit=1):
+        self.exploration_param = exploration_param
+        self.time_limit = time_limit
+
+    def choose_action(self, game, player=None, num_simulations=1000):
+        root = Node(game=game, parent=None)
+
+        start_time = time.time()
+        while (time.time() - start_time) < self.time_limit:
+            self.run_simulation(root, game.current_player)
+
+        if not root.children:
+            raise RuntimeError("No available actions in the current game state.")
+
+        best_node = max(root.children, key=lambda node: node.visits)
+        return best_node.action
+
+    def select_node(self, node):
+        while node.children:
+            node = max(node.children, key=lambda child: self.ucb1(child))
+        return node
+
+    def expand_node(self, node):
+        node.expand()
+
+    def simulate(self, node):
+        game = copy.deepcopy(node.game)
+        while not game.is_draw() and not game.is_winner(game.current_player):
+            game.random_play(game.current_player)
+        if game.is_draw():
+            return 0
+        elif game.is_winner(node.game.current_player):
+            return -1
+        else:
+            return 1
+    
+    def run_simulation(self, root, player):
+        node = self.select_node(root)
+        self.expand_node(node)
+        reward = self.simulate(node)
+        self.backpropagate(node, reward)
+
+    def backpropagate(self, node, reward):
+        while node:
+            node.visits += 1
+            node.wins += reward
+            node = node.parent
+            reward = -reward
+
+    def ucb1(self, node):
+        if node.visits == 0:
+            return float('inf')
+        return (node.wins / node.visits) + self.exploration_param * math.sqrt(math.log(node.parent.visits) / node.visits)
+
+
 class Game:
     def __init__(self):
         self.board = [[' ' for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
@@ -27,12 +105,21 @@ class Game:
     def play(self, row, col, player):
         if self.board[row][col] == ' ':
             self.board[row][col] = player
+            self.current_player = 'O' if player == 'X' else 'X'
             if self.is_winner(player):
                 return self.board, 25 if player == 'X' else -25, True
             if self.is_draw():
                 return self.board, 0, True
             return self.board, 0, False
         return self.board, INVALID_MOVE_PENALTY, False
+    
+    def get_actions(self):
+        actions = []
+        for i in range(3):
+            for j in range(3):
+                if self.board[i][j] == ' ':
+                    actions.append(i * 3 + j)
+        return actions
 
     def is_winner(self, player):
         for row in self.board:
@@ -122,6 +209,76 @@ class Agent:
     def _preprocess_state(self, state):
         return [1 if cell == 'X' else -1 if cell == 'O' else 0 for row in state for cell in row]
 
+'''
+i.e. select the lowest numbered cell for the next play, 
+dumb as a rock and doesn't even need all these layers of logic to accomplish....
+'''
+class AlphaBetaPruning:  
+    def __init__(self, depth_limit=3):
+        self.depth_limit = depth_limit
+
+    def choose_action(self, game, player):
+        _, action = self.alpha_beta_search(game, player, self.depth_limit)
+        return action
+
+    def alpha_beta_search(self, game, player, depth):
+        return self.max_value(game, player, -float('inf'), float('inf'), depth)
+
+    def max_value(self, game, player, alpha, beta, depth):
+        if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
+            return self.evaluate(game, player), None
+
+        value = -float('inf')
+        best_action = None
+
+        for action in self.get_actions(game):
+            new_game = copy.deepcopy(game)
+            new_game.play(action // 3, action % 3, player)
+            temp_value, _ = self.min_value(new_game, 'X' if player == 'O' else 'O', alpha, beta, depth - 1)
+
+            if temp_value > value:
+                value = temp_value
+                best_action = action
+
+            alpha = max(alpha, value)
+            if alpha >= beta:
+                break
+
+        return value, best_action
+
+    def min_value(self, game, player, alpha, beta, depth):
+        if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
+            return self.evaluate(game, player), None
+
+        value = float('inf')
+        best_action = None
+
+        for action in self.get_actions(game):
+            new_game = copy.deepcopy(game)
+            new_game.play(action // 3, action % 3, player)
+            temp_value, _ = self.max_value(new_game, 'X' if player == 'O' else 'O', alpha, beta, depth - 1)
+
+            if temp_value < value:
+                value = temp_value
+                best_action = action
+
+            beta = min(beta, value)
+            if alpha >= beta:
+                break
+
+        return value, best_action
+
+    def evaluate(self, game, player):
+        if game.is_winner(player):
+            return 1
+        elif game.is_winner('X' if player == 'O' else 'O'):
+            return -1
+        else:
+            return 0
+
+    def get_actions(self, game):
+        return [i for i in range(9) if game.get_board()[i // 3][i % 3] == ' ']
+
 
 class Model(nn.Module):
     def __init__(self):
@@ -137,11 +294,11 @@ class Model(nn.Module):
     def forward(self, x):
         return self.model(x)
     
-
-def human_vs_ai(agent):
+def human_vs_ai(agent, opponent_type):
     game = Game()
     player = 'X'
     done = False
+    opponent = AlphaBetaPruning() if opponent_type == 'ab_prune' else None
 
     while not done:
         game.print_board()
@@ -152,8 +309,16 @@ def human_vs_ai(agent):
             if done:
                 break
         else:
-            action = agent.choose_action(game.get_board())
-            _, _, done = game.play(action // 3, action % 3, player)
+            if opponent_type == 'ab_prune':                 # alpha beta pruning
+                action = opponent.choose_action(game, 'O')
+            elif opponent_type == 'mcts':                   # monte carlo tree search
+                opponent = MCTS()
+                action = opponent.choose_action(game)
+            elif opponent_type == "rnn":                    # reinforcement learning neural network
+                action = agent.choose_action(game.get_board())
+                _, _, done = game.play(action // 3, action % 3, player)
+            else:
+                print("soemthing unexpected happened, sorry")
 
         player = 'O' if player == 'X' else 'X'
 
@@ -162,7 +327,7 @@ def human_vs_ai(agent):
     if game.is_winner('X'):
         print("Congratulations! You won!")
     elif game.is_winner('O'):
-        print("TicTacBot has won.")
+        print(f"{opponent_type.capitalize()} has won.")
     else:
         print("It's a draw!")
     
@@ -231,7 +396,7 @@ def main():
         print(f"Agent {metadata['name']} (Episodes Trained: {metadata['episodes_trained']}, Epsilon: {metadata['epsilon']:.7f})")
         print("Select an option:")
         print("1. Train the TicTacBot agent for N*100 episodes")
-        print("2. Play against TicTacBot")
+        print("2. Play against an AI...")
         print("3. Reset the TicTacBot agent")
         print("4. Quit")
         option = int(input("Command: "))
@@ -243,7 +408,19 @@ def main():
             save_model(agent.model, MODEL_PATH)
             save_model_metadata(metadata, MODEL_METADATA_PATH)
         elif option == 2:
-            human_vs_ai(agent)
+            print("Choose your opponent:")
+            print("1. The Grocer (ABP) Alpha Beta Pruning")
+            print("2. Tree Master (AB-MCTS) Monte Carlo Tree")
+            print("3. Tic Tac Bot (RLA-NN) Neural Network")
+            opponent_option = int(input("Command: "))
+            if opponent_option == 1:
+                human_vs_ai(agent, 'ab_prune')
+            elif opponent_option == 2:
+                human_vs_ai(agent, 'mcts')
+            elif opponent_option == 3:
+                human_vs_ai(agent, "rnn")
+            else:
+                print("Invalid option. Please try again.")
         elif option == 3:
             os.remove(MODEL_PATH)
             os.remove(MODEL_METADATA_PATH)
