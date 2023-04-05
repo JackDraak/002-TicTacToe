@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "002-tictactoe"
+version = "0.1.0"
+description = "Tic Tac Toe for MLA education"
+authors = ["Jack Draak <JackDraak@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "002_tictactoe"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
