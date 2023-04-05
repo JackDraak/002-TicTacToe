@@ -21,7 +21,11 @@ REWARD_O_WIN = -50
 INVALID_MOVE_PENALTY = -5
 MEMORY_SIZE = 2000
 
-
+'''
+The RL agent that learns to play the game using Q-Learning algorithm with a Deep Neural Network. 
+It has methods for choosing an action, remembering the state, action, reward, next_state, and 
+done tuple, and updating the model's weights through backpropagation.
+'''
 class Agent:
     def __init__(self, model, learning_rate=0.001, discount_factor=0.99, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, batch_size=64):
         self.model = model.to(device)
@@ -49,7 +53,6 @@ class Agent:
             q_values = self.model(state)
             state_reshaped = state.view(3, 3)
             valid_q_values = [(i, q_values[i].item()) for i in range(9) if state_reshaped[i // 3][i % 3] == 0]
-
             return max(valid_q_values, key=lambda x: x[1])[0]
 
     def learn(self):
@@ -69,7 +72,6 @@ class Agent:
             loss = nn.MSELoss()(self.model(state), target_f.detach())
             loss.backward()
             self.optimizer.step()
-
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
@@ -105,45 +107,35 @@ class AlphaBetaPruning:
     def max_value(self, game, player, alpha, beta, depth):
         if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
             return self.evaluate(game, player), None
-
         value = -float('inf')
         best_action = None
-
         for action in self.get_actions(game):
             new_game = copy.deepcopy(game)
             new_game.play(action // 3, action % 3, player)
             temp_value, _ = self.min_value(new_game, 'X' if player == 'O' else 'O', alpha, beta, depth - 1)
-
             if temp_value > value:
                 value = temp_value
                 best_action = action
-
             alpha = max(alpha, value)
             if alpha >= beta:
                 break
-
         return value, best_action
 
     def min_value(self, game, player, alpha, beta, depth):
         if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
             return self.evaluate(game, player), None
-
         value = float('inf')
         best_action = None
-
         for action in self.get_actions(game):
             new_game = copy.deepcopy(game)
             new_game.play(action // 3, action % 3, player)
             temp_value, _ = self.max_value(new_game, 'X' if player == 'O' else 'O', alpha, beta, depth - 1)
-
             if temp_value < value:
                 value = temp_value
                 best_action = action
-
             beta = min(beta, value)
             if alpha >= beta:
                 break
-
         return value, best_action
 
 
@@ -204,7 +196,9 @@ class Game:
         row, col = random.choice(valid_moves)
         return self.play(row, col, player)
 
-
+'''
+This is an opponent class that uses the Monte Carlo Tree Search algorithm to choose the next best move.
+'''
 class MCTS:
     def __init__(self, exploration_param=1, time_limit=1):
         self.exploration_param = exploration_param
@@ -219,14 +213,11 @@ class MCTS:
 
     def choose_action(self, game, player=None, num_simulations=1000):
         root = Node(game=game, parent=None)
-
         start_time = time.time()
         while (time.time() - start_time) < self.time_limit:
             self.run_simulation(root, game.current_player)
-
         if not root.children:
             raise RuntimeError("No available actions in the current game state.")
-
         best_node = max(root.children, key=lambda node: node.visits)
         return best_node.action
 
@@ -260,7 +251,9 @@ class MCTS:
             return float('inf')
         return (node.wins / node.visits) + self.exploration_param * math.sqrt(math.log(node.parent.visits) / node.visits)
 
-
+'''
+This is the Deep Neural Network model used by the Agent.
+'''
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
@@ -275,7 +268,9 @@ class Model(nn.Module):
     def forward(self, x):
         return self.model(x)
   
-    
+'''
+A node in the Monte Carlo Tree used by the MCTS algorithm.
+'''
 class Node:
     def __init__(self, game, parent=None, action=None):
         self.game = game
@@ -300,10 +295,8 @@ def human_vs_ai(agent, opponent_type):
     player = 'X'
     done = False
     opponent = AlphaBetaPruning() if opponent_type == 'ab_prune' else None
-
     while not done:
         game.print_board()
-
         if player == 'X':
             action = int(input("Enter your move (1-9): ")) - 1
             _, _, done = game.play(action // 3, action % 3, player)
@@ -320,11 +313,8 @@ def human_vs_ai(agent, opponent_type):
                 _, _, done = game.play(action // 3, action % 3, player)
             else:
                 print("soemthing unexpected happened, sorry")
-
         player = 'O' if player == 'X' else 'X'
-
     game.print_board()
-
     if game.is_winner('X'):
         print("Congratulations! You won!")
     elif game.is_winner('O'):
@@ -337,17 +327,13 @@ def load_or_create_model(model_path, metadata_path):
         model = Model()
         model.load_state_dict(torch.load(model_path))
         model.eval()
-
         with open(metadata_path, 'r') as metadata_file:
             metadata = json.load(metadata_file)
-    else:
+    else:  # Save initial metadata when creating a new model
         model = Model()
-        metadata = {"name": "TicTacBot", "episodes_trained": 0, "epsilon": 1.0}
-        
-        # Save initial metadata when creating a new model
+        metadata = {"name": "TicTacBot", "episodes_trained": 0, "epsilon": 1.0} 
         with open(metadata_path, 'w') as metadata_file:
             json.dump(metadata, metadata_file, indent=4)
-
     return model, metadata
 
 def save_model(model, model_path):
@@ -363,27 +349,22 @@ def train_ai_agent(agent, metadata, episodes=500):
         state = game.get_board()
         done = False
         steps = 0
-
         while not done:
             action = agent.choose_action(state)
             next_state, reward, done = game.play(action // 3, action % 3, 'X')
             reward *= REWARD_X_WIN
-
             if not done:
                 _, ai_reward, ai_done = game.random_play('O')
                 ai_reward *= REWARD_O_WIN
                 reward -= ai_reward
                 done = ai_done
-
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             steps += 1
             agent.learn()
-
         if (episode + 1) % 50 == 0:
             agent.update_target_model()
             print(f"Episode: {episode + metadata['episodes_trained'] + 1}, Epsilon: {agent.epsilon:.7f}")
-
     metadata['episodes_trained'] += episodes
     metadata['epsilon'] = agent.epsilon
     return agent, metadata
@@ -391,17 +372,15 @@ def train_ai_agent(agent, metadata, episodes=500):
 def main():
     model, metadata = load_or_create_model(MODEL_PATH, MODEL_METADATA_PATH)
     agent = Agent(model, epsilon=metadata["epsilon"])
-
     while True:
         print()
         print(f"Agent {metadata['name']} (Episodes Trained: {metadata['episodes_trained']}, Epsilon: {metadata['epsilon']:.7f})")
         print("Select an option:")
         print("1. Train the TicTacBot agent for N*100 episodes")
-        print("2. Play against an AI...")
-        print("3. Reset the TicTacBot agent")
+        print("2. Play against an AI opponent...")
+        print("3. Reset the RLNN-TicTacBot agent model (NOT REVERSIBLE)")
         print("4. Quit")
         option = int(input("Command: "))
-
         if option == 1:
             n_sets = int(input("Enter the number of sets of 100 episodes to train: "))
             episodes = n_sets * 100
@@ -423,10 +402,18 @@ def main():
             else:
                 print("Invalid option. Please try again.")
         elif option == 3:
-            os.remove(MODEL_PATH)
-            os.remove(MODEL_METADATA_PATH)
-            model, metadata = load_or_create_model(MODEL_PATH, MODEL_METADATA_PATH)
-            agent = Agent(model, epsilon=metadata["epsilon"])
+            if input("Are you certain you would like to wipe the trained RLNN model? (y for yes) ") == 'y':
+                try:
+                    os.remove(MODEL_PATH)
+                except: print("- no model present")
+                # reset the metadata dictionary
+                metadata = {"name": "TicTacBot", "episodes_trained": 0, "epsilon": 1.0}
+                save_model_metadata(metadata, MODEL_METADATA_PATH)
+                model, metadata = load_or_create_model(MODEL_PATH, MODEL_METADATA_PATH)
+                agent = Agent(model, epsilon=metadata["epsilon"])
+            else:
+                model, metadata = load_or_create_model(MODEL_PATH, MODEL_METADATA_PATH)
+                agent = Agent(model, epsilon=metadata["epsilon"])
         elif option == 4:
             break
         else:
