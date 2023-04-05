@@ -22,139 +22,6 @@ INVALID_MOVE_PENALTY = -5
 MEMORY_SIZE = 2000
 
 
-class Node:
-    def __init__(self, game, parent=None, action=None):
-        self.game = game
-        self.parent = parent
-        self.action = action
-        self.children = []
-        self.wins = 0
-        self.visits = 0
-
-    def expand(self):
-        if not self.children:
-            for action in self.game.get_actions():
-                new_game = copy.deepcopy(self.game)
-                player = new_game.current_player
-                new_game.play(action // 3, action % 3, player)
-                new_node = Node(new_game, parent=self, action=action)
-                self.children.append(new_node)
-
-
-class MCTS:
-    def __init__(self, exploration_param=1, time_limit=1):
-        self.exploration_param = exploration_param
-        self.time_limit = time_limit
-
-    def choose_action(self, game, player=None, num_simulations=1000):
-        root = Node(game=game, parent=None)
-
-        start_time = time.time()
-        while (time.time() - start_time) < self.time_limit:
-            self.run_simulation(root, game.current_player)
-
-        if not root.children:
-            raise RuntimeError("No available actions in the current game state.")
-
-        best_node = max(root.children, key=lambda node: node.visits)
-        return best_node.action
-
-    def select_node(self, node):
-        while node.children:
-            node = max(node.children, key=lambda child: self.ucb1(child))
-        return node
-
-    def expand_node(self, node):
-        node.expand()
-
-    def simulate(self, node):
-        game = copy.deepcopy(node.game)
-        while not game.is_draw() and not game.is_winner(game.current_player):
-            game.random_play(game.current_player)
-        if game.is_draw():
-            return 0
-        elif game.is_winner(node.game.current_player):
-            return -1
-        else:
-            return 1
-    
-    def run_simulation(self, root, player):
-        node = self.select_node(root)
-        self.expand_node(node)
-        reward = self.simulate(node)
-        self.backpropagate(node, reward)
-
-    def backpropagate(self, node, reward):
-        while node:
-            node.visits += 1
-            node.wins += reward
-            node = node.parent
-            reward = -reward
-
-    def ucb1(self, node):
-        if node.visits == 0:
-            return float('inf')
-        return (node.wins / node.visits) + self.exploration_param * math.sqrt(math.log(node.parent.visits) / node.visits)
-
-
-class Game:
-    def __init__(self):
-        self.board = [[' ' for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
-        self.current_player = 'X'
-
-    def play(self, row, col, player):
-        if self.board[row][col] == ' ':
-            self.board[row][col] = player
-            self.current_player = 'O' if player == 'X' else 'X'
-            if self.is_winner(player):
-                return self.board, 25 if player == 'X' else -25, True
-            if self.is_draw():
-                return self.board, 0, True
-            return self.board, 0, False
-        return self.board, INVALID_MOVE_PENALTY, False
-    
-    def get_actions(self):
-        actions = []
-        for i in range(3):
-            for j in range(3):
-                if self.board[i][j] == ' ':
-                    actions.append(i * 3 + j)
-        return actions
-
-    def is_winner(self, player):
-        for row in self.board:
-            if all([cell == player for cell in row]):
-                return True
-        for col in range(3):
-            if all([self.board[row][col] == player for row in range(3)]):
-                return True
-        if all([self.board[i][i] == player for i in range(3)]) or all([self.board[i][2 - i] == player for i in range(3)]):
-            return True
-        return False
-
-    def is_draw(self):
-        return all([cell != ' ' for row in self.board for cell in row])
-
-    def print_board(self):
-        print()
-        for i, row in enumerate(self.board):
-            formatted_row = [str((i * BOARD_SIZE) + j + 1) if cell == ' ' else cell for j, cell in enumerate(row)]
-            print('|'.join(formatted_row))
-            if i < BOARD_SIZE - 1:
-                print(SEPARATOR_LINE)
-
-    def random_play(self, player):
-        valid_moves = [(i, j) for i in range(BOARD_SIZE) for j in range(BOARD_SIZE) if self.board[i][j] == ' ']
-        row, col = random.choice(valid_moves)
-        return self.play(row, col, player)
-
-    def get_board(self):
-        return self.board
-
-    def __str__(self):
-        return "\n".join(['|'.join(row) for row in self.board])
-
-
 class Agent:
     def __init__(self, model, learning_rate=0.001, discount_factor=0.99, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, batch_size=64):
         self.model = model.to(device)
@@ -210,19 +77,30 @@ class Agent:
         return [1 if cell == 'X' else -1 if cell == 'O' else 0 for row in state for cell in row]
 
 '''
-i.e. select the lowest numbered cell for the next play, 
-dumb as a rock and doesn't even need all these layers of logic to accomplish....
+i.e. select the lowest numbered cell for the next play, dumb as a rock and 
+doesn't even need all these layers of logic to accomplish....
 '''
 class AlphaBetaPruning:  
     def __init__(self, depth_limit=3):
         self.depth_limit = depth_limit
 
+    def alpha_beta_search(self, game, player, depth):
+        return self.max_value(game, player, -float('inf'), float('inf'), depth)
+
     def choose_action(self, game, player):
         _, action = self.alpha_beta_search(game, player, self.depth_limit)
         return action
 
-    def alpha_beta_search(self, game, player, depth):
-        return self.max_value(game, player, -float('inf'), float('inf'), depth)
+    def evaluate(self, game, player):
+        if game.is_winner(player):
+            return 1
+        elif game.is_winner('X' if player == 'O' else 'O'):
+            return -1
+        else:
+            return 0
+
+    def get_actions(self, game):
+        return [i for i in range(9) if game.get_board()[i // 3][i % 3] == ' ']
 
     def max_value(self, game, player, alpha, beta, depth):
         if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
@@ -268,16 +146,119 @@ class AlphaBetaPruning:
 
         return value, best_action
 
-    def evaluate(self, game, player):
-        if game.is_winner(player):
-            return 1
-        elif game.is_winner('X' if player == 'O' else 'O'):
+
+class Game:
+    def __init__(self):
+        self.board = [[' ' for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        self.current_player = 'X'
+
+    def __str__(self):
+        return "\n".join(['|'.join(row) for row in self.board])
+
+    def get_actions(self):
+        actions = []
+        for i in range(3):
+            for j in range(3):
+                if self.board[i][j] == ' ':
+                    actions.append(i * 3 + j)
+        return actions
+
+    def get_board(self):
+        return self.board
+
+    def is_draw(self):
+        return all([cell != ' ' for row in self.board for cell in row])
+
+    def is_winner(self, player):
+        for row in self.board:
+            if all([cell == player for cell in row]):
+                return True
+        for col in range(3):
+            if all([self.board[row][col] == player for row in range(3)]):
+                return True
+        if all([self.board[i][i] == player for i in range(3)]) or all([self.board[i][2 - i] == player for i in range(3)]):
+            return True
+        return False
+
+    def play(self, row, col, player):
+        if self.board[row][col] == ' ':
+            self.board[row][col] = player
+            self.current_player = 'O' if player == 'X' else 'X'
+            if self.is_winner(player):
+                return self.board, 25 if player == 'X' else -25, True
+            if self.is_draw():
+                return self.board, 0, True
+            return self.board, 0, False
+        return self.board, INVALID_MOVE_PENALTY, False
+
+    def print_board(self):
+        print()
+        for i, row in enumerate(self.board):
+            formatted_row = [str((i * BOARD_SIZE) + j + 1) if cell == ' ' else cell for j, cell in enumerate(row)]
+            print('|'.join(formatted_row))
+            if i < BOARD_SIZE - 1:
+                print(SEPARATOR_LINE)
+                
+    def random_play(self, player):
+        valid_moves = [(i, j) for i in range(BOARD_SIZE) for j in range(BOARD_SIZE) if self.board[i][j] == ' ']
+        row, col = random.choice(valid_moves)
+        return self.play(row, col, player)
+
+
+class MCTS:
+    def __init__(self, exploration_param=1, time_limit=1):
+        self.exploration_param = exploration_param
+        self.time_limit = time_limit
+    
+    def backpropagate(self, node, reward):
+        while node:
+            node.visits += 1
+            node.wins += reward
+            node = node.parent
+            reward = -reward
+
+    def choose_action(self, game, player=None, num_simulations=1000):
+        root = Node(game=game, parent=None)
+
+        start_time = time.time()
+        while (time.time() - start_time) < self.time_limit:
+            self.run_simulation(root, game.current_player)
+
+        if not root.children:
+            raise RuntimeError("No available actions in the current game state.")
+
+        best_node = max(root.children, key=lambda node: node.visits)
+        return best_node.action
+
+    def expand_node(self, node):
+        node.expand()
+
+    def select_node(self, node):
+        while node.children:
+            node = max(node.children, key=lambda child: self.ucb1(child))
+        return node
+    
+    def run_simulation(self, root, player):
+        node = self.select_node(root)
+        self.expand_node(node)
+        reward = self.simulate(node)
+        self.backpropagate(node, reward)
+
+    def simulate(self, node):
+        game = copy.deepcopy(node.game)
+        while not game.is_draw() and not game.is_winner(game.current_player):
+            game.random_play(game.current_player)
+        if game.is_draw():
+            return 0
+        elif game.is_winner(node.game.current_player):
             return -1
         else:
-            return 0
+            return 1
 
-    def get_actions(self, game):
-        return [i for i in range(9) if game.get_board()[i // 3][i % 3] == ' ']
+    def ucb1(self, node):
+        if node.visits == 0:
+            return float('inf')
+        return (node.wins / node.visits) + self.exploration_param * math.sqrt(math.log(node.parent.visits) / node.visits)
 
 
 class Model(nn.Module):
@@ -293,6 +274,26 @@ class Model(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+  
+    
+class Node:
+    def __init__(self, game, parent=None, action=None):
+        self.game = game
+        self.parent = parent
+        self.action = action
+        self.children = []
+        self.wins = 0
+        self.visits = 0
+
+    def expand(self):
+        if not self.children:
+            for action in self.game.get_actions():
+                new_game = copy.deepcopy(self.game)
+                player = new_game.current_player
+                new_game.play(action // 3, action % 3, player)
+                new_node = Node(new_game, parent=self, action=action)
+                self.children.append(new_node)
+
     
 def human_vs_ai(agent, opponent_type):
     game = Game()
