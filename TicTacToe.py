@@ -80,23 +80,29 @@ def human_vs_ai(agent, opponent_type):
     while not done:
         game.print_board()
         if player == 'X':
-            action = int(input("Enter your move (1-9): ")) - 1
-        _, _, done = game.play(action // 3, action % 3, player)
-        
-        if done:
-            break
+            valid_move = False
+            while not valid_move:
+                action = int(input("Enter your move (1-9): ")) - 1
+                row, col = action // 3, action % 3
+                if game.board[row][col] == ' ':
+                    valid_move = True
+            _, _, done = game.play(row, col, player)
         else:
-            if opponent_type == 'ab_prune':                 # alpha beta pruning
+            if opponent_type == 'ab_prune':
                 action = opponent.choose_action(game, 'O')
-            elif opponent_type == 'mcts':                   # monte carlo tree search
+            elif opponent_type == 'mcts':
                 action = mcts_opponent.choose_action(game)
-            elif opponent_type == "rnn":                    # reinforcement learning neural network
-                action = agent.choose_action(game.get_board())
-                _, _, done = game.play(action // 3, action % 3, player)
+            elif opponent_type == "rnn":
+                if player == 'X':
+                    action = agent.choose_action(game.get_board())
+                    _, _, done = game.play(action // 3, action % 3, player)
+                else:
+                    input("Press Enter to see the opponent's move...")
+                    _, _, done = game.random_play(player)
             else:
-                print("soemthing unexpected happened, sorry")
-        
-        # This line should be outside the else block
+                raise ValueError("Invalid opponent type")
+            if done:
+                break
         player = 'O' if player == 'X' else 'X'
     
     game.print_board()
@@ -106,7 +112,6 @@ def human_vs_ai(agent, opponent_type):
         print(f"{opponent_type.capitalize()} has won.")
     else:
         print("It's a draw!")
-
     
 def load_or_create_model(model_path, metadata_path):
     if os.path.exists(model_path):
