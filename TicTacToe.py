@@ -76,25 +76,29 @@ def human_vs_ai(agent, opponent_type):
     player = 'X'
     done = False
     opponent = AlphaBetaPruning() if opponent_type == 'ab_prune' else None
+    mcts_opponent = MCTS() if opponent_type == 'mcts' else None
     while not done:
         game.print_board()
         if player == 'X':
             action = int(input("Enter your move (1-9): ")) - 1
-            _, _, done = game.play(action // 3, action % 3, player)
-            if done:
-                break
+        _, _, done = game.play(action // 3, action % 3, player)
+        
+        if done:
+            break
         else:
             if opponent_type == 'ab_prune':                 # alpha beta pruning
                 action = opponent.choose_action(game, 'O')
             elif opponent_type == 'mcts':                   # monte carlo tree search
-                opponent = MCTS()
-                action = opponent.choose_action(game)
+                action = mcts_opponent.choose_action(game)
             elif opponent_type == "rnn":                    # reinforcement learning neural network
                 action = agent.choose_action(game.get_board())
                 _, _, done = game.play(action // 3, action % 3, player)
             else:
                 print("soemthing unexpected happened, sorry")
+        
+        # This line should be outside the else block
         player = 'O' if player == 'X' else 'X'
+    
     game.print_board()
     if game.is_winner('X'):
         print("Congratulations! You won!")
@@ -102,6 +106,7 @@ def human_vs_ai(agent, opponent_type):
         print(f"{opponent_type.capitalize()} has won.")
     else:
         print("It's a draw!")
+
     
 def load_or_create_model(model_path, metadata_path):
     if os.path.exists(model_path):
@@ -148,7 +153,21 @@ def train_ai_agent(agent, metadata, episodes=500):
             print(f"Episode: {episode + metadata['episodes_trained'] + 1}, Epsilon: {agent.epsilon:.7f}")
     metadata['episodes_trained'] += episodes
     metadata['epsilon'] = agent.epsilon
+    agent.save_model(MODEL_PATH)
+    save_model_as_json(agent.model, 'model.json')
     return agent, metadata
+
+def save_model_as_json(model, file_name):
+    state_dict = model.state_dict()
+    json_data = {key: value.tolist() for key, value in state_dict.items()}
+    with open(file_name, 'w') as file:
+        json.dump(json_data, file)
+
+def load_model_from_json(model, file_name):
+    with open(file_name, 'r') as file:
+        json_data = json.load(file)
+    state_dict = {key: torch.tensor(value) for key, value in json_data.items()}
+    model.load_state_dict(state_dict)
 
 def main():
     model, metadata = load_or_create_model(MODEL_PATH, MODEL_METADATA_PATH)

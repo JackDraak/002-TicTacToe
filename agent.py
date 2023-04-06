@@ -1,3 +1,5 @@
+import json
+import os
 import random
 import torch
 import torch.nn as nn
@@ -11,32 +13,6 @@ class Agent:
     '''
     class Agent:
         A class that implements an agent for playing Tic Tac Toe using Q-learning.
-
-    Attributes:
-        model (nn.Module): A PyTorch neural network used to approximate the Q-function.
-        learning_rate (float): The learning rate used by the Adam optimizer for updating the model weights.
-        discount_factor (float): The discount factor used for future rewards in the Q-value update.
-        epsilon (float): The probability of choosing a random action during training.
-        epsilon_min (float): The minimum value of epsilon during training.
-        epsilon_decay (float): The decay rate of epsilon after each training episode.
-        batch_size (int): The number of transitions sampled from the replay buffer for each training step.
-        memory (deque): A replay buffer for storing past state, action, reward, next state, and done tuples.
-
-    Methods:
-        update_target_model():
-            Copies the weights of the model to the target model used for calculating target Q-values.
-        
-        remember(state, action, reward, next_state, done):
-            Adds a new transition to the replay buffer.
-        
-        choose_action(state):
-            Chooses an action to take for the given state using an epsilon-greedy policy.
-        
-        learn():
-            Updates the model weights using a batch of transitions sampled from the replay buffer.
-        
-        _preprocess_state(state):
-            Converts the state representation from a list of lists to a flattened list of -1, 0, or 1 values.
     '''
     def __init__(self, model, learning_rate=0.001, discount_factor=0.99, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, batch_size=64):
         self.model = model.to(device)
@@ -87,6 +63,15 @@ class Agent:
 
     def _preprocess_state(self, state):
         return [1 if cell == 'X' else -1 if cell == 'O' else 0 for row in state for cell in row]
+    
+    def save_model(self, file_name):
+        torch.save(self.model.state_dict(), file_name)
+
+    def load_model(self, file_name):
+        if os.path.isfile(file_name):
+            self.model.load_state_dict(torch.load(file_name))
+            self.target_model.load_state_dict(torch.load(file_name))
+            self.epsilon = self.epsilon_min
 
 
 class Model(nn.Module):
@@ -125,6 +110,12 @@ class Model(nn.Module):
 
     
 if __name__ == '__main__':
+    model = Model()
+    agent = Agent(model=model)
+    model_file = 'model.pth'
+    if os.path.isfile(model_file):
+        agent.load_model(model_file)
+    
     print(Agent.__doc__)
     print()
     print(Model.__doc__)
