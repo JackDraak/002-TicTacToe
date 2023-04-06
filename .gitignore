@@ -1,5 +1,6 @@
-model_data.json
-model.pth
-002-TicTacToe.code-workspace
-__pycache__/TicTacToeAgent.cpython-38.pyc
-__pycache__/TicTacToe.cpython-38.pyc
+*.json
+*.pth
+*.code-workspace
+__pycache__/*
+OpenAI/*
+local/*
