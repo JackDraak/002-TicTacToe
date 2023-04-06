@@ -1,15 +1,10 @@
-import copy
-import math
+import json
 import os
 import random
-import time
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from collections import deque
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
+from abp import AlphaBetaPruning
+from agent import Agent, Model
+from mcts import MCTS
 
 MODEL_PATH = "model.pth"
 MODEL_METADATA_PATH = "model_data.json"
@@ -18,125 +13,6 @@ SEPARATOR_LINE = '-' * 5
 REWARD_X_WIN = 50
 REWARD_O_WIN = -50
 INVALID_MOVE_PENALTY = -5
-MEMORY_SIZE = 2000
-
-'''
-The RL agent that learns to play the game using Q-Learning algorithm with a Deep Neural Network. 
-It has methods for choosing an action, remembering the state, action, reward, next_state, and 
-done tuple, and updating the model's weights through backpropagation.
-'''
-class Agent:
-    def __init__(self, model, learning_rate=0.001, discount_factor=0.99, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, batch_size=64):
-        self.model = model.to(device)
-        self.target_model = Model().to(device) 
-        self.update_target_model()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.discount_factor = discount_factor
-        self.epsilon = epsilon
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.batch_size = batch_size
-        self.memory = deque(maxlen=MEMORY_SIZE)
-
-    def update_target_model(self):
-        self.target_model.load_state_dict(self.model.state_dict())
-
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-
-    def choose_action(self, state):
-        if random.random() <= self.epsilon:
-            return random.choice([i for i in range(9) if state[i // 3][i % 3] == ' '])
-        else:
-            state = torch.tensor(self._preprocess_state(state), dtype=torch.float32).to(device)
-            q_values = self.model(state)
-            state_reshaped = state.view(3, 3)
-            valid_q_values = [(i, q_values[i].item()) for i in range(9) if state_reshaped[i // 3][i % 3] == 0]
-            return max(valid_q_values, key=lambda x: x[1])[0]
-
-    def learn(self):
-        if len(self.memory) < self.batch_size:
-            return
-
-        batch = random.sample(self.memory, self.batch_size)
-        for state, action, reward, next_state, done in batch:
-            state = torch.tensor(self._preprocess_state(state), dtype=torch.float32).to(device)
-            next_state = torch.tensor(self._preprocess_state(next_state), dtype=torch.float32).to(device)
-            target = reward
-            if not done:
-                target += self.discount_factor * torch.max(self.target_model(next_state)).item()
-            target_f = self.model(state)
-            target_f[action] = target
-            self.optimizer.zero_grad()
-            loss = nn.MSELoss()(self.model(state), target_f.detach())
-            loss.backward()
-            self.optimizer.step()
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-    def _preprocess_state(self, state):
-        return [1 if cell == 'X' else -1 if cell == 'O' else 0 for row in state for cell in row]
-
-'''
-i.e. select the lowest numbered cell for the next play, dumb as a rock and 
-doesn't even need all these layers of logic to accomplish....
-'''
-class AlphaBetaPruning:  
-    def __init__(self, depth_limit=3):
-        self.depth_limit = depth_limit
-
-    def alpha_beta_search(self, game, player, depth):
-        return self.max_value(game, player, -float('inf'), float('inf'), depth)
-
-    def choose_action(self, game, player):
-        _, action = self.alpha_beta_search(game, player, self.depth_limit)
-        return action
-
-    def evaluate(self, game, player):
-        if game.is_winner(player):
-            return 1
-        elif game.is_winner('X' if player == 'O' else 'O'):
-            return -1
-        else:
-            return 0
-
-    def get_actions(self, game):
-        return [i for i in range(9) if game.get_board()[i // 3][i % 3] == ' ']
-
-    def max_value(self, game, player, alpha, beta, depth):
-        if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
-            return self.evaluate(game, player), None
-        value = -float('inf')
-        best_action = None
-        for action in self.get_actions(game):
-            new_game = copy.deepcopy(game)
-            new_game.play(action // 3, action % 3, player)
-            temp_value, _ = self.min_value(new_game, 'X' if player == 'O' else 'O', alpha, beta, depth - 1)
-            if temp_value > value:
-                value = temp_value
-                best_action = action
-            alpha = max(alpha, value)
-            if alpha >= beta:
-                break
-        return value, best_action
-
-    def min_value(self, game, player, alpha, beta, depth):
-        if depth == 0 or game.is_winner(player) or game.is_winner('X' if player == 'O' else 'O') or game.is_draw():
-            return self.evaluate(game, player), None
-        value = float('inf')
-        best_action = None
-        for action in self.get_actions(game):
-            new_game = copy.deepcopy(game)
-            new_game.play(action // 3, action % 3, player)
-            temp_value, _ = self.max_value(new_game, 'X' if player == 'O' else 'O', alpha, beta, depth - 1)
-            if temp_value < value:
-                value = temp_value
-                best_action = action
-            beta = min(beta, value)
-            if alpha >= beta:
-                break
-        return value, best_action
-
 
 class Game:
     def __init__(self):
@@ -194,100 +70,6 @@ class Game:
         valid_moves = [(i, j) for i in range(BOARD_SIZE) for j in range(BOARD_SIZE) if self.board[i][j] == ' ']
         row, col = random.choice(valid_moves)
         return self.play(row, col, player)
-
-'''
-This is an opponent class that uses the Monte Carlo Tree Search algorithm to choose the next best move.
-'''
-class MCTS:
-    def __init__(self, exploration_param=1, time_limit=1):
-        self.exploration_param = exploration_param
-        self.time_limit = time_limit
-    
-    def backpropagate(self, node, reward):
-        while node:
-            node.visits += 1
-            node.wins += reward
-            node = node.parent
-            reward = -reward
-
-    def choose_action(self, game, player=None, num_simulations=1000):
-        root = Node(game=game, parent=None)
-        start_time = time.time()
-        while (time.time() - start_time) < self.time_limit:
-            self.run_simulation(root, game.current_player)
-        if not root.children:
-            raise RuntimeError("No available actions in the current game state.")
-        best_node = max(root.children, key=lambda node: node.visits)
-        return best_node.action
-
-    def expand_node(self, node):
-        node.expand()
-
-    def select_node(self, node):
-        while node.children:
-            node = max(node.children, key=lambda child: self.ucb1(child))
-        return node
-    
-    def run_simulation(self, root, player):
-        node = self.select_node(root)
-        self.expand_node(node)
-        reward = self.simulate(node)
-        self.backpropagate(node, reward)
-
-    def simulate(self, node):
-        game = copy.deepcopy(node.game)
-        while not game.is_draw() and not game.is_winner(game.current_player):
-            game.random_play(game.current_player)
-        if game.is_draw():
-            return 0
-        elif game.is_winner(node.game.current_player):
-            return -1
-        else:
-            return 1
-
-    def ucb1(self, node):
-        if node.visits == 0:
-            return float('inf')
-        return (node.wins / node.visits) + self.exploration_param * math.sqrt(math.log(node.parent.visits) / node.visits)
-
-'''
-This is the Deep Neural Network model used by the Agent.
-'''
-class Model(nn.Module):
-    def __init__(self):
-        super(Model, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(9, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 9)
-        )
-
-    def forward(self, x):
-        return self.model(x)
-  
-'''
-A node in the Monte Carlo Tree used by the MCTS algorithm.
-'''
-class Node:
-    def __init__(self, game, parent=None, action=None):
-        self.game = game
-        self.parent = parent
-        self.action = action
-        self.children = []
-        self.wins = 0
-        self.visits = 0
-
-    def expand(self):
-        if not self.children:
-            for action in self.game.get_actions():
-                new_game = copy.deepcopy(self.game)
-                player = new_game.current_player
-                new_game.play(action // 3, action % 3, player)
-                new_node = Node(new_game, parent=self, action=action)
-                self.children.append(new_node)
-
     
 def human_vs_ai(agent, opponent_type):
     game = Game()
